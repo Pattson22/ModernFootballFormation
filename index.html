@@ -41,6 +41,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   background: var(--bg); color: var(--fg); font: 15px/1.4 var(--f-body);
   padding-left: max(16px, env(safe-area-inset-left, 0px));
@@ -170,7 +171,8 @@ textarea.field { resize: vertical; min-height: 64px; }
 .share-btn { border: 0; border-radius: 8px; padding: 9px 16px; background: var(--accent); color: var(--accent-ink); font-weight: 600; white-space: nowrap; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 a.btn { text-decoration: none; display: inline-flex; align-items: center; }
-.x { border: 0; background: transparent; color: var(--muted); font-size: 22px; line-height: 1; padding: 2px 6px; }
+.x { border: 0; background: transparent; color: var(--muted); font-size: 26px; line-height: 1; min-width: 44px; min-height: 44px; border-radius: 8px; }
+.x:hover { background: var(--chip); }
 .loaded { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--chip); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 10px; font-weight: 500; }
 .loaded span { flex: 1 1 200px; }
 .sheet-back {
@@ -188,6 +190,12 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 @media (max-width: 920px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   #pitch { height: auto; width: 100%; min-height: 0; max-width: 760px; }
+}
+@media (max-width: 600px) {
+  .sheet-back { align-items: flex-end; padding-top: 48px; }
+  .sheet { max-height: 85dvh; border-radius: 14px 14px 10px 10px; }
+  .sheet textarea { min-height: 140px; }
+  .sheet .row-btns .btn { flex: 1 1 140px; justify-content: center; padding: 11px 10px; }
 }
 @media (max-width: 480px) {
   .seg button, .chipbtn { padding: 6px 8px; font-size: 13px; }
@@ -315,8 +323,9 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
     <label class="chk"><input type="checkbox" id="shareInclLink" checked> Add a link that opens the full board: formation, phases and arrows</label>
     <div class="row-btns">
       <button class="btn primary" id="shareNative" hidden>Share…</button>
-      <a class="btn" id="shareWa" href="https://wa.me/" target="_blank" rel="noopener">Send on WhatsApp</a>
+      <a class="btn" id="shareWa" href="https://web.whatsapp.com/" rel="noopener">Send on WhatsApp</a>
       <button class="btn" id="copyText">Copy message</button>
+      <button class="btn" id="shareDone">Close</button>
     </div>
     <p class="hint" id="shareStatus" aria-live="polite"></p>
   </div>
@@ -802,8 +811,13 @@ const shareStatus = t => { $('#shareStatus').textContent = t; };
 function updateShareText() {
   const t = lineupText($('#shareInclLink').checked ? shareLink : '');
   $('#shareText').value = t;
-  $('#shareWa').href = 'https://wa.me/?text=' + encodeURIComponent(t);
+  // Phones open the WhatsApp app directly; computers use WhatsApp Web in a new tab.
+  const wa = $('#shareWa'), text = encodeURIComponent(t);
+  if (IS_MOBILE) { wa.href = 'whatsapp://send?text=' + text; wa.removeAttribute('target'); }
+  else { wa.href = 'https://web.whatsapp.com/send?text=' + text; wa.target = '_blank'; }
 }
+const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 async function openShare() {
   if (anim) play();
   $('#shareSheet').hidden = false;
@@ -819,6 +833,7 @@ async function openShare() {
 function closeShare() { $('#shareSheet').hidden = true; $('#shareBtn').focus(); }
 $('#shareBtn').addEventListener('click', openShare);
 $('#shareClose').addEventListener('click', closeShare);
+$('#shareDone').addEventListener('click', closeShare);
 $('#shareSheet').addEventListener('click', e => { if (e.target.id === 'shareSheet') closeShare(); });
 $('#shareInclLink').addEventListener('change', updateShareText);
 $('#shareNative').addEventListener('click', async () => {
