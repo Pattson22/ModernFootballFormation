@@ -7,7 +7,7 @@ Everything is in one file, `index.html`. There is no build step and nothing to i
 ## Running it
 
 - **Locally:** open `index.html` in any modern browser (Chrome, Firefox, Safari or Edge).
-- **Online:** a hosted copy is published at https://claude.ai/artifact/ApYP7dniGMV1j4gcDTupub. It's private until you share it from the page's Share menu.
+- **Online:** https://pattson22.github.io/ModernFootballFormation/ (GitHub Pages, public).
 
 It works on phones and on desktop. On a phone, the pitch sits above the squad panel.
 
