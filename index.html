@@ -166,6 +166,25 @@ textarea.field { resize: vertical; min-height: 64px; }
 .ghost { fill: none; stroke: rgba(255,255,255,.5); stroke-width: .2; stroke-dasharray: .6 .4; }
 .draw #pitch { cursor: crosshair; }
 
+/* Sharing */
+.share-btn { border: 0; border-radius: 8px; padding: 9px 16px; background: var(--accent); color: var(--accent-ink); font-weight: 600; white-space: nowrap; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+.x { border: 0; background: transparent; color: var(--muted); font-size: 22px; line-height: 1; padding: 2px 6px; }
+.loaded { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--chip); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 10px; font-weight: 500; }
+.loaded span { flex: 1 1 200px; }
+.sheet-back {
+  position: fixed; inset: 0; z-index: 10; background: rgba(8, 14, 10, .55);
+  display: flex; align-items: center; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; width: 100%; max-width: 520px; max-height: 100%; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 20px 50px rgba(0,0,0,.35); }
+.sheet-head { display: flex; justify-content: space-between; align-items: center; }
+.sheet h2 { margin: 0; font: 700 22px var(--f-display); text-transform: uppercase; letter-spacing: .03em; }
+.sheet textarea { font: 14px/1.45 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; min-height: 220px; }
+.chk { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; }
+.chk input { margin-top: 3px; }
+
 @media (max-width: 920px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   #pitch { height: auto; width: 100%; min-height: 0; max-width: 760px; }
@@ -183,10 +202,16 @@ textarea.field { resize: vertical; min-height: 64px; }
     <span class="vs">vs</span>
     <input id="awayName" aria-label="Opponent name" maxlength="24">
   </div>
+  <button class="share-btn" id="shareBtn">Share lineup</button>
 </header>
 
 <main class="layout">
   <section class="board" id="board">
+    <div class="loaded" id="loadedBar" hidden>
+      <span id="loadedMsg">You're viewing a plan a teammate shared.</span>
+      <button class="btn" id="undoLoad">Go back to my plan</button>
+      <button class="x" id="loadedClose" aria-label="Dismiss">×</button>
+    </div>
     <div class="tools">
       <div class="seg" role="group" aria-label="Tool">
         <button data-tool="move" aria-pressed="true" title="Drag players and ball (V)">Move</button>
@@ -279,6 +304,23 @@ textarea.field { resize: vertical; min-height: 64px; }
     </section>
   </aside>
 </main>
+
+<div class="sheet-back" id="shareSheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+    <div class="sheet-head">
+      <h2 id="shareTitle">Share lineup</h2>
+      <button class="x" id="shareClose" aria-label="Close">×</button>
+    </div>
+    <textarea class="field" id="shareText" rows="12" readonly aria-label="Lineup message"></textarea>
+    <label class="chk"><input type="checkbox" id="shareInclLink" checked> Add a link that opens the full board: formation, phases and arrows</label>
+    <div class="row-btns">
+      <button class="btn primary" id="shareNative" hidden>Share…</button>
+      <a class="btn" id="shareWa" href="https://wa.me/" target="_blank" rel="noopener">Send on WhatsApp</a>
+      <button class="btn" id="copyText">Copy message</button>
+    </div>
+    <p class="hint" id="shareStatus" aria-live="polite"></p>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -669,6 +711,7 @@ $('#awayName').addEventListener('input', e => { S.awayName = e.target.value; sav
 
 // ---------- Keyboard ----------
 document.addEventListener('keydown', e => {
+  if (!$('#shareSheet').hidden) { if (e.key === 'Escape') closeShare(); return; }
   if (e.target.matches('input, textarea, select')) return;
   const map = { v: 'move', r: 'run', p: 'pass', x: 'press', e: 'erase' };
   if (map[e.key.toLowerCase()]) setTool(map[e.key.toLowerCase()]);
@@ -683,6 +726,132 @@ document.addEventListener('keydown', e => {
     commit();
   } else if (e.key === 'Escape') setSel(-1);
 });
+
+// ---------- Sharing ----------
+// Board links always point at the public site, so they work wherever the board was opened.
+const SITE = 'https://pattson22.github.io/ModernFootballFormation/';
+const b64u = bytes => { let s = ''; bytes.forEach(b => { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64u = str => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+async function pack(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (window.CompressionStream) {
+    try {
+      const z = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+      return 'z' + b64u(new Uint8Array(await new Response(z).arrayBuffer()));
+    } catch (e) {}
+  }
+  return 'j' + b64u(bytes);
+}
+async function unpack(str) {
+  let bytes = unb64u(str.slice(1));
+  if (str[0] === 'z') {
+    const z = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    bytes = new Uint8Array(await new Response(z).arrayBuffer());
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+// Rebuild a shared plan field by field so a tampered link can't inject markup.
+function sanitize(d) {
+  const num = v => { const n = Number(v); if (!isFinite(n)) throw new Error('bad number'); return n; };
+  const pt = p => ({ x: num(p && p.x), y: num(p && p.y) });
+  const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+  const col = (v, f) => /^#[0-9a-f]{6}$/i.test(v) ? v : f;
+  if (!d || d.v !== 1 || !Array.isArray(d.players) || d.players.length !== 11 ||
+      !Array.isArray(d.phases) || !d.phases.length || d.phases.length > 40) throw new Error('bad plan');
+  const kit = d.kit || {};
+  return {
+    v: 1, homeName: str(d.homeName, 24), awayName: str(d.awayName, 24),
+    kit: { home: col(kit.home, '#d62839'), gk: col(kit.gk, '#f4b400'), away: col(kit.away, '#2457c5') },
+    form: FORMS[d.form] ? d.form : '4-3-3', oform: FORMS[d.oform] ? d.oform : '4-4-2',
+    showOpp: !!d.showOpp, trails: d.trails !== false, cur: 0,
+    players: d.players.map(p => ({ num: str(p.num, 2), name: str(p.name, 18), pos: str(p.pos, 4) })),
+    bench: (Array.isArray(d.bench) ? d.bench : []).slice(0, 12).map(b => ({ num: str(b.num, 2), name: str(b.name, 18) })),
+    phases: d.phases.map(p => {
+      if (!Array.isArray(p.home) || p.home.length !== 11 || !Array.isArray(p.opp) || p.opp.length !== 11) throw new Error('bad phase');
+      return {
+        name: str(p.name, 32), note: str(p.note, 2000), home: p.home.map(pt), opp: p.opp.map(pt), ball: pt(p.ball),
+        arrows: (Array.isArray(p.arrows) ? p.arrows : []).filter(a => ['run', 'pass', 'press'].includes(a.type)).slice(0, 80)
+          .map(a => ({ type: a.type, x1: num(a.x1), y1: num(a.y1), x2: num(a.x2), y2: num(a.y2) })),
+      };
+    }),
+  };
+}
+function slim() {
+  const c = clone(S), r = v => Math.round(v * 10) / 10;
+  const rp = p => { p.x = r(p.x); p.y = r(p.y); };
+  c.phases.forEach(p => {
+    p.home.forEach(rp); p.opp.forEach(rp); rp(p.ball);
+    p.arrows.forEach(a => { a.x1 = r(a.x1); a.y1 = r(a.y1); a.x2 = r(a.x2); a.y2 = r(a.y2); });
+  });
+  c.cur = 0;
+  return c;
+}
+function lineupText(link) {
+  const out = [`${S.homeName || 'Our XI'} vs ${S.awayName || 'Opponents'}`, `Formation: ${S.form}`, ''];
+  S.players.forEach(p => out.push(`${p.pos} - #${p.num} ${p.name || '(no name yet)'}`));
+  const subs = S.bench.filter(b => b.name || b.num).map(b => `#${b.num} ${b.name || '(no name yet)'}`);
+  if (subs.length) out.push('', 'Subs: ' + subs.join(', '));
+  const plan = S.phases.map((p, i) => p.note && p.note.trim() ? `${i + 1}. ${p.name}: ${p.note.trim()}` : '').filter(Boolean);
+  if (plan.length) out.push('', 'Game plan:', ...plan);
+  if (link) out.push('', 'Full tactics board: ' + link);
+  return out.join('\n');
+}
+
+let shareLink = '';
+const shareStatus = t => { $('#shareStatus').textContent = t; };
+function updateShareText() {
+  const t = lineupText($('#shareInclLink').checked ? shareLink : '');
+  $('#shareText').value = t;
+  $('#shareWa').href = 'https://wa.me/?text=' + encodeURIComponent(t);
+}
+async function openShare() {
+  if (anim) play();
+  $('#shareSheet').hidden = false;
+  $('#shareNative').hidden = !navigator.share;
+  shareLink = '';
+  updateShareText();
+  $('#shareClose').focus();
+  shareStatus('Building the board link…');
+  try { shareLink = SITE + '#plan=' + await pack(slim()); shareStatus(''); }
+  catch (e) { shareStatus("Couldn't build a board link. You can still send the lineup text."); }
+  updateShareText();
+}
+function closeShare() { $('#shareSheet').hidden = true; $('#shareBtn').focus(); }
+$('#shareBtn').addEventListener('click', openShare);
+$('#shareClose').addEventListener('click', closeShare);
+$('#shareSheet').addEventListener('click', e => { if (e.target.id === 'shareSheet') closeShare(); });
+$('#shareInclLink').addEventListener('change', updateShareText);
+$('#shareNative').addEventListener('click', async () => {
+  try { await navigator.share({ title: `${S.homeName} lineup`, text: $('#shareText').value }); }
+  catch (e) { if (e.name !== 'AbortError') shareStatus('Sharing is blocked here. Use Copy message or WhatsApp instead.'); }
+});
+$('#copyText').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('#shareText').value); shareStatus('Message copied. Paste it into your team chat.'); }
+  catch (e) { const t = $('#shareText'); t.focus(); t.select(); shareStatus('Text selected. Press Ctrl+C, or long-press and tap Copy.'); }
+});
+
+// Open a plan from a shared link, keeping the viewer's own plan for "Go back".
+let ownPlan = null;
+$('#undoLoad').addEventListener('click', () => {
+  if (ownPlan) { S = ownPlan; ownPlan = null; sel = -1; renderAll(); }
+  $('#loadedBar').hidden = true;
+});
+$('#loadedClose').addEventListener('click', () => { $('#loadedBar').hidden = true; });
+(async () => {
+  const m = location.hash.match(/^#plan=([zj][A-Za-z0-9_-]+)$/);
+  if (!m) return;
+  try {
+    const shared = sanitize(await unpack(m[1]));
+    ownPlan = S; S = shared; sel = -1; renderAll();
+    $('#loadedMsg').textContent = "You're viewing a plan a teammate shared. Changes you make are saved as your plan.";
+    $('#undoLoad').hidden = false;
+  } catch (e) {
+    $('#loadedMsg').textContent = "That shared link is broken or incomplete, so your own plan is still showing.";
+    $('#undoLoad').hidden = true;
+  }
+  $('#loadedBar').hidden = false;
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+})();
 
 function renderAll() {
   $('#homeName').value = S.homeName; $('#awayName').value = S.awayName;

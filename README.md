@@ -48,6 +48,16 @@ Turn on **Opponents** to place the other team in any formation and drag them aro
 ### Kits
 Set the colours for your outfield players, your goalkeeper and the opponents.
 
+## Sharing the lineup
+
+Tap **Share lineup** at the top. It builds a message with:
+- the starting XI (position, number, name), the subs and each phase's notes
+- optionally, a link that opens the full board (formation, phases and arrows) on a teammate's phone
+
+You can send it with **Share…** (your phone's share menu, which shows on phones), **Send on WhatsApp**, or **Copy message**.
+
+The whole plan is packed into the link, so nothing is uploaded anywhere. When a teammate opens the link, a banner lets them go back to their own plan.
+
 ## Saving
 
 Your plan is saved automatically in your browser's local storage. That means:
