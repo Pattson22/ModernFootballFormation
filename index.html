@@ -71,7 +71,7 @@ button { cursor: pointer; }
 .pitch-wrap { display: flex; justify-content: center; }
 #pitch {
   display: block; height: calc(100dvh - 190px); min-height: 600px; max-width: 100%; aspect-ratio: 71 / 110;
-  border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none;
+  border-radius: 10px; touch-action: pan-y; user-select: none; -webkit-user-select: none;
 }
 
 /* Toolbar */
@@ -165,7 +165,7 @@ textarea.field { resize: vertical; min-height: 64px; }
 .erase .arr:hover .ln { stroke-width: .7; }
 .trail { stroke: rgba(255,255,255,.45); stroke-width: .2; stroke-dasharray: .5 .5; }
 .ghost { fill: none; stroke: rgba(255,255,255,.5); stroke-width: .2; stroke-dasharray: .6 .4; }
-.draw #pitch { cursor: crosshair; }
+.draw #pitch { cursor: crosshair; touch-action: none; }
 
 /* Sharing */
 .share-btn { border: 0; border-radius: 8px; padding: 9px 16px; background: var(--accent); color: var(--accent-ink); font-weight: 600; white-space: nowrap; }
@@ -484,6 +484,12 @@ svg.addEventListener('pointerdown', e => {
   e.preventDefault();
   render();
 });
+// Swipes on empty grass scroll the page; touches on a player/ball (or any touch while drawing) don't.
+svg.addEventListener('touchstart', e => {
+  if (anim) return;
+  const drawing = tool === 'run' || tool === 'pass' || tool === 'press';
+  if (drawing || (tool === 'move' && e.target.closest('[data-k]'))) e.preventDefault();
+}, { passive: false });
 svg.addEventListener('pointermove', e => {
   if (!drag && !draft) return;
   const p = pt(e);
