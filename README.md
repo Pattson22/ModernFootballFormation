@@ -71,7 +71,16 @@ The whole plan is packed into the link, so nothing is uploaded anywhere. When a 
 
 Share from the GitHub Pages site. Other places that host the page, such as a Claude artifact, can block the phone share menu and WhatsApp links.
 
-## Saving
+## Saving an image
+
+Tap **Save image** in the toolbar to save the current phase as a PNG picture (1080 px wide). It includes:
+- the team names, formation and phase name
+- the pitch with every player's number and name, the opponents if they're shown, the ball and the arrows
+- your named subs and the phase's notes
+
+On Android and computers the picture downloads. On iPhone and iPad your share menu opens instead: tap **Save Image** to add it to Photos, or send it straight to WhatsApp. To save a different phase, select it first.
+
+## Saving your plan
 
 Your plan is saved automatically in your browser's local storage. That means:
 - it stays on the device and browser you used, and isn't synced anywhere

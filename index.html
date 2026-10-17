@@ -239,6 +239,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
       <button class="chipbtn" id="oppToggle" aria-pressed="false">Opponents</button>
       <label class="sel" id="oformWrap" hidden>Theirs <select id="oform"></select></label>
       <button class="chipbtn" id="trailToggle" aria-pressed="true" title="Show where players moved from in the previous phase">Trails</button>
+      <button class="chipbtn" id="saveImg" title="Save this phase as a picture">Save image</button>
     </div>
 
     <div class="editcard" id="editCard">
@@ -873,6 +874,122 @@ $('#shareNative').addEventListener('click', async () => {
 $('#copyText').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('#shareText').value); shareStatus('Message copied. Paste it into your team chat.'); }
   catch (e) { const t = $('#shareText'); t.focus(); t.select(); shareStatus('Text selected. Press Ctrl+C, or long-press and tap Copy.'); }
+});
+
+// ---------- Save as image ----------
+const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IMG = { w: 1080, pad: 40, head: 176, bg: '#143522', ink: '#ffffff', soft: '#cfe3d5', faint: '#8fb39c' };
+const DISPLAY = '"Saira Condensed", "Arial Narrow", sans-serif', BODY = 'Barlow, "Segoe UI", sans-serif';
+const slug = s => (String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'lineup');
+function wrapLines(ctx, text, maxW) {
+  const lines = [];
+  String(text).split('\n').forEach(par => {
+    let line = '';
+    par.split(/\s+/).filter(Boolean).forEach(w => {
+      const t = line ? line + ' ' + w : w;
+      if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t;
+    });
+    if (line) lines.push(line);
+  });
+  return lines;
+}
+// The pitch SVG is styled by page CSS, which an <img> can't see: copy computed paint onto a clone,
+// drop its text (canvas draws that with the page's loaded fonts), and rasterise it.
+async function pitchPicture(wPx, hPx) {
+  const clone = svg.cloneNode(true), src = svg.querySelectorAll('*'), dst = clone.querySelectorAll('*');
+  const props = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'fill-opacity', 'stroke-opacity'];
+  src.forEach((el, i) => { const cs = getComputedStyle(el); props.forEach(p => { const v = cs.getPropertyValue(p); if (v) dst[i].style.setProperty(p, v); }); });
+  clone.querySelectorAll('text, .ring').forEach(n => n.remove());
+  clone.removeAttribute('style'); clone.removeAttribute('class');
+  clone.setAttribute('width', wPx); clone.setAttribute('height', hPx);
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone));
+  await img.decode();
+  return img;
+}
+async function buildImage() {
+  try { await Promise.all([document.fonts.load(`800 40px ${DISPLAY}`), document.fonts.load(`700 40px ${DISPLAY}`), document.fonts.load(`600 20px ${BODY}`), document.fonts.load(`500 20px ${BODY}`), document.fonts.load(`400 20px ${BODY}`)]); } catch (e) {}
+  const P = ph(), pw = IMG.w - IMG.pad * 2, s = pw / 71, phgt = Math.round(110 * s);
+  const c = document.createElement('canvas'), ctx = c.getContext('2d');
+
+  // Footer text first, so the canvas height fits it.
+  ctx.font = `500 28px ${BODY}`;
+  const subs = S.bench.filter(b => b.name && b.name.trim()).map(b => `#${b.num} ${b.name.trim()}`);
+  const subLines = subs.length ? wrapLines(ctx, 'Subs: ' + subs.join(', '), pw) : [];
+  ctx.font = `400 26px ${BODY}`;
+  const noteLines = P.note && P.note.trim() ? wrapLines(ctx, P.note.trim(), pw).slice(0, 5) : [];
+  const foot = 28 + subLines.length * 38 + (noteLines.length ? 12 + noteLines.length * 34 : 0) + 80;
+  c.width = IMG.w; c.height = IMG.head + phgt + foot;
+
+  ctx.fillStyle = IMG.bg; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = IMG.ink; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  ctx.font = `800 64px ${DISPLAY}`;
+  const title = `${S.homeName || 'Our XI'} vs ${S.awayName || 'Opponents'}`.toUpperCase();
+  let tsize = 64; while (ctx.measureText(title).width > pw && tsize > 34) { tsize -= 2; ctx.font = `800 ${tsize}px ${DISPLAY}`; }
+  ctx.fillText(title, IMG.pad, 92);
+  ctx.font = `600 30px ${BODY}`; ctx.fillStyle = IMG.soft;
+  ctx.fillText(`${S.form}  ·  ${P.name || 'Phase ' + (S.cur + 1)}`, IMG.pad, 140);
+
+  // Pitch
+  const top = IMG.head, img = await pitchPicture(pw, phgt);
+  ctx.save();
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(IMG.pad, top, pw, phgt, 18); else ctx.rect(IMG.pad, top, pw, phgt);
+  ctx.clip(); ctx.drawImage(img, IMG.pad, top, pw, phgt); ctx.restore();
+
+  // Numbers and names, in pitch metres → canvas pixels
+  const X = x => IMG.pad + (x + 1.5) * s, Y = y => top + (y + 2.5) * s;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  if (S.showOpp) {
+    ctx.font = `700 ${2.2 * s}px ${DISPLAY}`; ctx.fillStyle = ink(S.kit.away);
+    P.opp.forEach((p, i) => ctx.fillText(String(i + 1), X(p.x), Y(p.y) + s * 0.1));
+  }
+  P.home.forEach((p, i) => {
+    const pl = S.players[i];
+    ctx.font = `700 ${2.5 * s}px ${DISPLAY}`; ctx.fillStyle = ink(i === 0 ? S.kit.gk : S.kit.home);
+    ctx.fillText(String(pl.num), X(p.x), Y(p.y) + s * 0.1);
+    ctx.font = `600 ${1.7 * s}px ${BODY}`; ctx.lineWidth = 0.38 * s * 2; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.fillStyle = '#ffffff';
+    const label = pl.name || pl.pos;
+    ctx.strokeText(label, X(p.x), Y(p.y + 4.5)); ctx.fillText(label, X(p.x), Y(p.y + 4.5));
+  });
+
+  // Footer
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  let y = top + phgt + 28;
+  ctx.font = `500 28px ${BODY}`; ctx.fillStyle = IMG.ink;
+  subLines.forEach(l => { y += 38; ctx.fillText(l, IMG.pad, y); });
+  if (noteLines.length) { y += 12; ctx.font = `400 26px ${BODY}`; ctx.fillStyle = IMG.soft; noteLines.forEach(l => { y += 34; ctx.fillText(l, IMG.pad, y); }); }
+  ctx.font = `500 20px ${BODY}`; ctx.fillStyle = IMG.faint;
+  ctx.fillText('Made with Touchline · pattson22.github.io/ModernFootballFormation', IMG.pad, c.height - 22);
+  return new Promise(res => c.toBlob(res, 'image/png'));
+}
+$('#saveImg').addEventListener('click', async () => {
+  const btn = $('#saveImg');
+  if (btn.disabled) return;
+  if (anim) play();
+  const prevSel = sel; if (sel >= 0) setSel(-1);
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const blob = await buildImage();
+    const name = `${slug(S.homeName)}-${S.form}-${slug(ph().name)}.png`;
+    const file = window.File ? new File([blob], name, { type: 'image/png' }) : null;
+    let shared = false;
+    if (IS_IOS && file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: name }); shared = true; }
+      catch (e) { if (e.name === 'AbortError') shared = true; }
+    }
+    if (!shared) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+    btn.textContent = 'Saved';
+  } catch (e) {
+    btn.textContent = "Couldn't save";
+  }
+  if (prevSel >= 0) setSel(prevSel);
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Save image'; }, 1600);
 });
 
 // Open a plan from a shared link, keeping the viewer's own plan for "Go back".
